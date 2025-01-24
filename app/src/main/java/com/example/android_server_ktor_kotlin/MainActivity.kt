@@ -2,7 +2,13 @@ package com.example.android_server_ktor_kotlin
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
+import android.content.Context.SENSOR_SERVICE
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -16,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,57 +45,48 @@ import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
 class MainActivity : ComponentActivity() {
-
-
-
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContent {
-            GetLocationScreen()
+            GetLocationAndCompassScreen()
         }
     }
-
 }
 
 @Composable
-fun GetLocationScreen() {
-
+fun GetLocationAndCompassScreen() {
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     var location by remember { mutableStateOf<Location?>(null) }
     var permissionGranted by remember { mutableStateOf(false) }
-    var text by remember { mutableStateOf(" ") }
-    var localizacao by remember { mutableStateOf(" ") }
+    var compassDirection by remember { mutableStateOf("Aguardando...") }
+    var logMessages by remember { mutableStateOf(listOf<String>()) }
 
-    val client  by lazy {
+    val client by lazy {
         HttpClient(CIO) {
             install(WebSockets)
         }
     }
 
-    suspend fun sendMessage(mensagem: String): String  {
-        lateinit var income : String
+    val sensorManager = LocalContext.current.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
-        client.webSocket(host = "localhost", port = 8080, path = "/chat") {
-
-
-            send(Frame.Text(mensagem))
-
-            for (message in incoming) {
-                message as? Frame.Text ?: continue
-                income = "Received: ${message.readText()}"
-                return@webSocket
+    // Função para enviar mensagens via WebSocket
+    suspend fun sendMessage(message: String) {
+        client.webSocket(host = "192.168.221.222", port = 8080, path = "/chat") {
+            send(Frame.Text(message))
+            for (frame in incoming) {
+                frame as? Frame.Text ?: continue
+                logMessages = logMessages + "Server: ${frame.readText()}"
             }
         }
-        return income
     }
 
-
+    // Obter permissão de localização
     LaunchedEffect(Unit) {
         val permission = Manifest.permission.ACCESS_FINE_LOCATION
         if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
@@ -102,7 +100,7 @@ fun GetLocationScreen() {
         }
     }
 
-
+    // Atualizar localização
     if (permissionGranted) {
         LaunchedEffect(Unit) {
             fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
@@ -111,7 +109,28 @@ fun GetLocationScreen() {
         }
     }
 
+    // Monitorar direção da bússola
+    DisposableEffect(Unit) {
+        val sensorListener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent?) {
+                if (event?.sensor?.type == Sensor.TYPE_ORIENTATION) {
+                    val azimuth = event.values[0]
+                    compassDirection = "Azimute: ${azimuth.toInt()}°"
+                }
+            }
 
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
+
+        val orientationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ORIENTATION)
+        sensorManager.registerListener(sensorListener, orientationSensor, SensorManager.SENSOR_DELAY_UI)
+
+        onDispose {
+            sensorManager.unregisterListener(sensorListener)
+        }
+    }
+
+    // UI
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -119,47 +138,25 @@ fun GetLocationScreen() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-
         location?.let { loc ->
             val lat = loc.latitude
             val lng = loc.longitude
-            localizacao = "Latitude: $lat e longitude: $lng"
-            Text("Latitude: $lat, Longitude: $lng")
-        } ?: run {
-            Text("Localização não encontrada ou permissão negada.")
+            val locationMessage = "Latitude: $lat, Longitude: $lng"
+            Text(locationMessage)
+            LaunchedEffect(Unit) {
+                sendMessage("Localização: $locationMessage")
+            }
+        } ?: Text("Localização não encontrada ou permissão negada.")
+
+        Text(compassDirection)
+        LaunchedEffect(compassDirection) {
+            sendMessage(compassDirection)
         }
-        Column {
 
-//                Button(onClick = {
-//                    CoroutineScope(Dispatchers.IO).launch {
-//                        text += sendMessage(localizacao) + "/n"
-//                    }
-//                }) {
-//                    Text("Send")
-//                }
-//                LazyColumn {
-//                    items(text.split("/n")){
-//                        Text(it)
-//                    }
-//                }
-
-            LaunchedEffect(key1 = Unit) {
-                while (true) {
-                    CoroutineScope(Dispatchers.IO).launch {
-                        text += sendMessage(localizacao) + "/n"
-                    }
-
-                    delay(1000L)
-
-                }
-                    println("O loop está rodando!")
-                }
+        LazyColumn {
+            items(logMessages) { message ->
+                Text(message)
             }
-
-            LazyColumn {
-                items(text.split("/n")){
-                    Text(it)
-                }
-            }
+        }
     }
 }
