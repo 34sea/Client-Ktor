@@ -11,6 +11,8 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
 import android.os.Bundle
+import android.os.Looper
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -34,7 +36,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.android.gms.location.LocationAvailability
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.websocket.WebSockets
@@ -48,6 +55,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,59 +72,41 @@ fun GetLocationAndCompassScreen() {
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     var location by remember { mutableStateOf<Location?>(null) }
-    var permissionGranted by remember { mutableStateOf(false) }
     var compassDirection by remember { mutableStateOf("Aguardando...") }
-    var logMessages by remember { mutableStateOf(listOf<String>()) }
-
-    val client by lazy {
+    val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    val client = remember {
         HttpClient(CIO) {
             install(WebSockets)
         }
     }
 
-    val sensorManager = LocalContext.current.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-
-    // Função para enviar mensagens via WebSocket
-    suspend fun sendMessage(message: String) {
-        client.webSocket(host = "192.168.221.222", port = 8080, path = "/chat") {
-            send(Frame.Text(message))
-            for (frame in incoming) {
-                frame as? Frame.Text ?: continue
-                logMessages = logMessages + "Server: ${frame.readText()}"
-            }
-        }
+    // Verificação de permissões
+    val locationPermissionGranted = remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        )
     }
 
-    // Obter permissão de localização
-    LaunchedEffect(Unit) {
-        val permission = Manifest.permission.ACCESS_FINE_LOCATION
-        if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
-            permissionGranted = true
-        } else {
+    if (!locationPermissionGranted.value) {
+        LaunchedEffect(Unit) {
             ActivityCompat.requestPermissions(
                 context as Activity,
-                arrayOf(permission),
-                1
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                LOCATION_PERMISSION_REQUEST_CODE
             )
         }
     }
 
-    // Atualizar localização
-    if (permissionGranted) {
-        LaunchedEffect(Unit) {
-            fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
-                location = loc
-            }
-        }
-    }
-
-    // Monitorar direção da bússola
+    // Listener para o sensor de orientação
     DisposableEffect(Unit) {
         val sensorListener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent?) {
                 if (event?.sensor?.type == Sensor.TYPE_ORIENTATION) {
                     val azimuth = event.values[0]
-                    compassDirection = "Azimute: ${azimuth.toInt()}°"
+                    compassDirection = azimuth.toInt().toString()
                 }
             }
 
@@ -130,7 +121,65 @@ fun GetLocationAndCompassScreen() {
         }
     }
 
-    // UI
+    // Solicitar atualizações constantes de localização
+    LaunchedEffect(locationPermissionGranted.value) {
+        if (locationPermissionGranted.value) {
+            val locationRequest = LocationRequest.Builder(
+                Priority.PRIORITY_HIGH_ACCURACY,
+                100 //
+            ).build()
+
+            // Obter última localização conhecida antes de iniciar atualizações
+            fusedLocationClient.lastLocation.addOnSuccessListener { lastKnownLocation ->
+                if (lastKnownLocation != null) {
+                    location = lastKnownLocation
+                }
+            }
+
+            // Iniciar atualizações de localização
+            fusedLocationClient.requestLocationUpdates(
+                locationRequest,
+                object : LocationCallback() {
+                    override fun onLocationResult(locationResult: LocationResult) {
+                        val newLocation = locationResult.lastLocation
+                        if (newLocation != null) {
+                            location = newLocation // Atualizar a localização com a nova
+                        }
+                    }
+
+                    override fun onLocationAvailability(locationAvailability: LocationAvailability) {
+                        if (!locationAvailability.isLocationAvailable) {
+                            Log.e("Location", "Localização não disponível")
+                        }
+                    }
+                },
+                context.mainLooper
+            )
+        }
+    }
+
+    // Comunicação constante com o servidor
+    LaunchedEffect(client) {
+        client.webSocket(host = "192.168.221.249", port = 8080, path = "/chat") {
+            while (true) {
+                val lat = location?.latitude?.toString() ?: "Aguardando localização..."
+                val lng = location?.longitude?.toString() ?: "Aguardando localização..."
+                val azimuth = compassDirection
+
+                try {
+                    send(Frame.Text("latitude:$lat"))
+                    send(Frame.Text("longitude:$lng"))
+                    send(Frame.Text("azimuth:$azimuth"))
+                } catch (e: Exception) {
+                    Log.e("WebSocket", "Erro ao enviar dados: ${e.message}")
+                }
+
+                delay(500) // Enviar dados a cada 500ms
+            }
+        }
+    }
+
+    // Exibir informações na tela
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -138,25 +187,16 @@ fun GetLocationAndCompassScreen() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        location?.let { loc ->
-            val lat = loc.latitude
-            val lng = loc.longitude
-            val locationMessage = "Latitude: $lat, Longitude: $lng"
-            Text(locationMessage)
-            LaunchedEffect(Unit) {
-                sendMessage("Localização: $locationMessage")
-            }
-        } ?: Text("Localização não encontrada ou permissão negada.")
-
-        Text(compassDirection)
-        LaunchedEffect(compassDirection) {
-            sendMessage(compassDirection)
-        }
-
-        LazyColumn {
-            items(logMessages) { message ->
-                Text(message)
-            }
-        }
+        Text("Latitude: ${location?.latitude ?: "Aguardando..."}")
+        Text("Longitude: ${location?.longitude ?: "Aguardando..."}")
+        Text("Azimuth: $compassDirection")
     }
 }
+
+private const val LOCATION_PERMISSION_REQUEST_CODE = 1
+
+
+
+
+
+

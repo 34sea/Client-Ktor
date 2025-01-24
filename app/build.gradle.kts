@@ -73,8 +73,11 @@ dependencies {
     implementation(libs.ktor.client.okhttp)
 
     //Servicos
-    implementation("com.google.maps.android:maps-compose:2.11.3")
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
-    implementation("com.google.accompanist:accompanist-permissions:0.36.0")
+    implementation(libs.maps.compose)
+    implementation(libs.play.services.maps)
+    implementation(libs.accompanist.permissions)
+
+    //
+    implementation(libs.kotlinx.coroutines.play.services)
 
 }
