@@ -79,6 +79,7 @@ fun GetLocationAndCompassScreen() {
             install(WebSockets)
         }
     }
+    Text("Martinho")
 
     // Verificação de permissões
     val locationPermissionGranted = remember {
