@@ -117,7 +117,7 @@ fun ScreenWebsocket(innerPading: PaddingValues) {
                         .clickable {
                             isClicked = true
                             itemsClicked = items.latitude
-                            Log.d("Items: ", items.toString())
+                            Log.d("Items: ", Json.encodeToString(items))
                             connectAndSendMessage(Json.encodeToString(items))
                         }
                         .fillMaxWidth()
@@ -131,15 +131,13 @@ fun ScreenWebsocket(innerPading: PaddingValues) {
                 }
             }
         }
-        connectAndSendMessage("Teste")
+        connectAndSendMessage(Json.encodeToString(dadoslo[0]))
 
         LaunchedEffect(Unit) {
 
             while (true){
+                if(enviado) connectAndSendMessage("Teste") else receivedMessage.value = "Aguardando servidor"
                 Log.d("Enviado: ", enviado.toString())
-
-                if(enviado){ connectAndSendMessage("Teste")}
-
                 delay(5000)
 
             }

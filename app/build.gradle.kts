@@ -86,7 +86,13 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
 
     //Seri
-    implementation(libs.kotlinx.serialization.json)
+
+        implementation(libs.kotlinx.serialization.json)
+        implementation(libs.ktor.client.serialization)
+        implementation(libs.ktor.client.content.negotiation)
+        implementation(libs.ktor.serialization.kotlinx.json)
+
+
 
     //Gson
     implementation(libs.gson)
