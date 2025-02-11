@@ -43,7 +43,8 @@ data class coordenadas(
 data class dadoscrane(
     val latitude: String,
     val longitude: String,
-    val machine_code: String
+    val machine_code: String,
+    val status: String
 )
 
 @Composable
@@ -56,13 +57,13 @@ fun ScreenWebsocket(innerPading: PaddingValues) {
         coordenadas(-29.4444F, 44.90545F)
     )
     val dadoslo = listOf(
-        dadoscrane("-19.331272019072015", "34.127201809072011", "2025-02-06T10:49:22.955710Z"),
-        dadoscrane("-19.331207809072015", "34.122407809072011", "2025-02-06T10:00:01.653445700Z")
+        dadoscrane("-19.331272019072015", "34.127201809072011", "2025-02-06T10:49:22.955710Z", "0"),
+        dadoscrane("-19.331207809072015", "34.122407809072011", "2025-02-06T10:00:01.653445700Z", "1")
     )
 
-//    val jsonDados = Json.encodeToString(dadoslo[0])
-//    Log.d("dadoslo: ", jsonDados)
-    val serverUrl = "wss://ws.postman-echo.com/raw"
+    val jsonDados = Json.encodeToString(dadoslo[0])
+    Log.d("dadoslo: ", jsonDados)
+    val serverUrl = "ws://yard-flow.loophole.site/api/ws"
     val messageState = remember { mutableStateOf("") }
     val receivedMessage = remember { mutableStateOf("Aguardando resposta...") }
     val coroutineScope = rememberCoroutineScope()
@@ -77,7 +78,7 @@ fun ScreenWebsocket(innerPading: PaddingValues) {
         enviado = false
         coroutineScope.launch {
             client.webSocket(urlString = serverUrl) {
-                send(message)
+                send(Frame.Text(message))
                 receivedMessage.value = "Enviando mensagem..."
 
                 for (frame in incoming) {
