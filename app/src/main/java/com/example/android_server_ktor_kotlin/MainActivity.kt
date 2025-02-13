@@ -40,6 +40,7 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.android_server_ktor_kotlin.data.MyScreen
 import com.example.android_server_ktor_kotlin.data.ScreenWebsocket
 import com.google.android.gms.location.LocationAvailability
 import com.google.android.gms.location.LocationCallback
@@ -69,11 +70,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                 val navController = rememberNavController()
-                NavHost(navController = navController, startDestination = "web"){
+                NavHost(navController = navController, startDestination = "MyScreen"){
                     composable(
                         route = "web"
                     ) {
                         ScreenWebsocket(innerPadding)
+                    }
+
+                    composable(
+                        route = "MyScreen"
+                    ) {
+                        MyScreen()
                     }
                 }
             }
